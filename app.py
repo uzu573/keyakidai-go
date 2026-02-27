@@ -8,10 +8,8 @@ import json
 # ==========================================
 # 1. ページ設定 & セッション状態の初期化
 # ==========================================
-# アイコン画像を読み込むための設定（icon.png指定）
 st.set_page_config(page_title="けやき台 最速Go", layout="centered", page_icon="icon.png")
 
-# 日本時間（JST）のタイムゾーンを設定
 JST = timezone(timedelta(hours=+9), 'JST')
 
 if 'uploader_key' not in st.session_state:
@@ -19,14 +17,15 @@ if 'uploader_key' not in st.session_state:
 
 HAKATA_FILE = '博多駅時刻表.xlsx'
 KIYAMA_FILE = '基山駅時刻表.xlsx'
-BG_IMAGE_PATH = 'my_background.png'
+BG_FILE_PATH = 'my_background.dat' # 画像も動画もこの名前で保存
 SETTINGS_PATH = 'settings.json'
 
 # ==========================================
 # 2. 設定・背景ロジック
 # ==========================================
 def load_settings():
-    default_settings = {"pos_x": 50, "pos_y": 50, "zoom": 100, "opacity": 0.9, "blur": True}
+    # bg_ext（拡張子）を記憶する項目を追加
+    default_settings = {"pos_x": 50, "pos_y": 50, "zoom": 100, "opacity": 0.9, "blur": True, "bg_ext": "png"}
     if os.path.exists(SETTINGS_PATH):
         try:
             with open(SETTINGS_PATH, 'r') as f:
@@ -39,8 +38,8 @@ def save_settings(settings):
     with open(SETTINGS_PATH, 'w') as f:
         json.dump(settings, f)
 
-def apply_background_style(image_path, settings):
-    if not os.path.exists(image_path):
+def apply_background_style(file_path, settings):
+    if not os.path.exists(file_path):
         st.markdown("""
         <style>
         .stApp { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
@@ -50,27 +49,59 @@ def apply_background_style(image_path, settings):
         return False
 
     try:
-        with open(image_path, "rb") as f:
+        with open(file_path, "rb") as f:
             data = f.read()
         b64_str = base64.b64encode(data).decode()
+        
+        bg_ext = settings.get('bg_ext', 'png')
         bg_pos = f"{settings['pos_x']}% {settings['pos_y']}%"
         bg_size = f"{settings['zoom']}%"
-        css = f"""
-        <style>
-        .stApp {{
-            background-image: url("data:image/png;base64,{b64_str}");
-            background-size: {bg_size};
-            background-position: {bg_pos};
-            background-repeat: no-repeat;
-            background-attachment: fixed;
-        }}
-        h1, h2, h3, h4, h5, h6, .stMarkdown, p, label, span {{
-            text-shadow: 0px 0px 5px rgba(0,0,0,0.8);
-            color: white !important;
-        }}
-        </style>
-        """
-        st.markdown(css, unsafe_allow_html=True)
+        
+        # ▼ 動画 (mp4, webm) の場合の処理
+        if bg_ext in ['mp4', 'webm']:
+            mime_type = f"video/{bg_ext}"
+            scale_val = settings['zoom'] / 100.0
+            html_code = f"""
+            <video autoplay loop muted playsinline class="bg-video">
+                <source src="data:{mime_type};base64,{b64_str}" type="{mime_type}">
+            </video>
+            <style>
+            .bg-video {{
+                position: fixed;
+                top: 0; left: 0;
+                width: 100vw; height: 100vh;
+                object-fit: cover;
+                object-position: {bg_pos};
+                transform: scale({scale_val});
+                z-index: -999;
+            }}
+            .stApp {{ background: transparent !important; }}
+            h1, h2, h3, h4, h5, h6, .stMarkdown, p, label, span {{
+                text-shadow: 0px 0px 5px rgba(0,0,0,0.8); color: white !important;
+            }}
+            </style>
+            """
+            st.markdown(html_code, unsafe_allow_html=True)
+            
+        # ▼ 画像・GIF の場合の処理
+        else:
+            mime_type = "image/jpeg" if bg_ext in ['jpg', 'jpeg'] else f"image/{bg_ext}"
+            css = f"""
+            <style>
+            .stApp {{
+                background-image: url("data:{mime_type};base64,{b64_str}");
+                background-size: {bg_size};
+                background-position: {bg_pos};
+                background-repeat: no-repeat;
+                background-attachment: fixed;
+            }}
+            h1, h2, h3, h4, h5, h6, .stMarkdown, p, label, span {{
+                text-shadow: 0px 0px 5px rgba(0,0,0,0.8); color: white !important;
+            }}
+            </style>
+            """
+            st.markdown(css, unsafe_allow_html=True)
+            
         return True
     except Exception:
         return False
@@ -82,19 +113,29 @@ current_settings = load_settings()
 
 with st.sidebar:
     st.header("🎨 デザイン設定")
+    
+    # 許可するファイルに gif と mp4 を追加！
     uploaded_file = st.file_uploader(
-        "背景画像を変更", 
-        type=['jpg', 'png', 'jpeg', 'webp'], 
+        "背景画像/動画を変更", 
+        type=['jpg', 'png', 'jpeg', 'webp', 'gif', 'mp4'], 
         key=f"uploader_{st.session_state.uploader_key}"
     )
+    
     if uploaded_file is not None:
-        with open(BG_IMAGE_PATH, "wb") as f:
+        # ファイルの拡張子を取得して記憶する
+        ext = uploaded_file.name.split('.')[-1].lower()
+        current_settings['bg_ext'] = ext
+        save_settings(current_settings)
+        
+        # ファイルを保存
+        with open(BG_FILE_PATH, "wb") as f:
             f.write(uploaded_file.getbuffer())
+            
         st.session_state.uploader_key += 1
         st.rerun()
 
-    has_image = os.path.exists(BG_IMAGE_PATH)
-    if has_image:
+    has_file = os.path.exists(BG_FILE_PATH)
+    if has_file:
         st.subheader("🔍 サイズと位置")
         new_zoom = st.slider("拡大・縮小 (%)", 50, 300, current_settings['zoom'], step=10)
         st.caption("位置の微調整")
@@ -115,11 +156,11 @@ with st.sidebar:
     save_settings(current_settings)
 
     if st.button("設定をリセット"):
-        if os.path.exists(BG_IMAGE_PATH): os.remove(BG_IMAGE_PATH)
+        if os.path.exists(BG_FILE_PATH): os.remove(BG_FILE_PATH)
         if os.path.exists(SETTINGS_PATH): os.remove(SETTINGS_PATH)
         st.rerun()
 
-apply_background_style(BG_IMAGE_PATH, current_settings)
+apply_background_style(BG_FILE_PATH, current_settings)
 
 # ==========================================
 # 4. CSS (共通・UIデザイン)
@@ -184,7 +225,6 @@ def load_data():
 
 def find_routes(start_station_name, start_col_name, target_time_obj, df_h, df_k):
     routes = []
-    # 検索時の日付も日本時間に合わせる
     today_date = datetime.now(JST).date()
     now_dt = datetime.combine(today_date, target_time_obj)
     
@@ -309,9 +349,7 @@ if len(sorted_times) == 0:
     st.warning("データなし")
     st.stop()
 
-# 💡 ここで「日本時間」を取得するように変更しました！
 now = datetime.now(JST).time()
-
 future_times = [t for t in sorted_times if t >= now]
 past_times = [t for t in sorted_times if t < now]
 display_times = future_times + past_times
