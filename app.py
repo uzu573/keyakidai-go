@@ -17,14 +17,13 @@ if 'uploader_key' not in st.session_state:
 
 HAKATA_FILE = '博多駅時刻表.xlsx'
 KIYAMA_FILE = '基山駅時刻表.xlsx'
-BG_FILE_PATH = 'my_background.dat' # 画像も動画もこの名前で保存
+BG_FILE_PATH = 'my_background.dat'
 SETTINGS_PATH = 'settings.json'
 
 # ==========================================
 # 2. 設定・背景ロジック
 # ==========================================
 def load_settings():
-    # bg_ext（拡張子）を記憶する項目を追加
     default_settings = {"pos_x": 50, "pos_y": 50, "zoom": 100, "opacity": 0.9, "blur": True, "bg_ext": "png"}
     if os.path.exists(SETTINGS_PATH):
         try:
@@ -57,7 +56,6 @@ def apply_background_style(file_path, settings):
         bg_pos = f"{settings['pos_x']}% {settings['pos_y']}%"
         bg_size = f"{settings['zoom']}%"
         
-        # ▼ 動画 (mp4, webm) の場合の処理
         if bg_ext in ['mp4', 'webm']:
             mime_type = f"video/{bg_ext}"
             scale_val = settings['zoom'] / 100.0
@@ -82,8 +80,6 @@ def apply_background_style(file_path, settings):
             </style>
             """
             st.markdown(html_code, unsafe_allow_html=True)
-            
-        # ▼ 画像・GIF の場合の処理
         else:
             mime_type = "image/jpeg" if bg_ext in ['jpg', 'jpeg'] else f"image/{bg_ext}"
             css = f"""
@@ -114,20 +110,19 @@ current_settings = load_settings()
 with st.sidebar:
     st.header("🎨 デザイン設定")
     
-    # 許可するファイルに gif と mp4 を追加！
+    # 💡 label_visibility="collapsed" で上の「背景画像を変更」というテキストも消してスッキリさせます
     uploaded_file = st.file_uploader(
-        "背景画像/動画を変更", 
+        "背景アップロード", 
         type=['jpg', 'png', 'jpeg', 'webp', 'gif', 'mp4'], 
-        key=f"uploader_{st.session_state.uploader_key}"
+        key=f"uploader_{st.session_state.uploader_key}",
+        label_visibility="collapsed"
     )
     
     if uploaded_file is not None:
-        # ファイルの拡張子を取得して記憶する
         ext = uploaded_file.name.split('.')[-1].lower()
         current_settings['bg_ext'] = ext
         save_settings(current_settings)
         
-        # ファイルを保存
         with open(BG_FILE_PATH, "wb") as f:
             f.write(uploaded_file.getbuffer())
             
@@ -163,7 +158,7 @@ with st.sidebar:
 apply_background_style(BG_FILE_PATH, current_settings)
 
 # ==========================================
-# 4. CSS (共通・UIデザイン)
+# 4. CSS (共通・UIデザイン & ボタン日本語化)
 # ==========================================
 backdrop_val = "blur(5px)" if current_settings['blur'] else "none"
 
@@ -181,16 +176,48 @@ st.markdown(f"""
         -webkit-backdrop-filter: {backdrop_val};
     }}
     .result-card, .result-card * {{ text-shadow: none !important; color: #333 !important; }}
+    
+    /* ===== ここからアップローダーの英語撲滅CSS ===== */
     [data-testid='stFileUploader'] {{
         background-color: rgba(255, 255, 255, 0.95);
         padding: 15px;
         border-radius: 10px;
         border: 2px solid #007bff;
+        text-align: center;
+    }}
+    /* 「Drag and drop file here」と「Limit...」を消す */
+    [data-testid='stFileUploadDropzone'] > div > div > span,
+    [data-testid='stFileUploadDropzone'] > div > div > small {{
+        display: none !important;
+    }}
+    /* 「Browse files」ボタンを「📁 背景をアップロード」の青いボタンに書き換える */
+    [data-testid='stFileUploadDropzone'] button {{
+        position: relative !important;
+        color: transparent !important;
+        background-color: #007bff !important;
+        width: 100% !important;
+        border-radius: 8px !important;
+        padding: 12px !important;
+        margin-top: 5px !important;
+        border: none !important;
+    }}
+    [data-testid='stFileUploadDropzone'] button::after {{
+        content: '📁 背景をアップロード' !important;
+        position: absolute !important;
+        top: 50% !important;
+        left: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        color: white !important;
+        font-weight: bold !important;
+        font-size: 1rem !important;
+        visibility: visible !important;
     }}
     [data-testid='stFileUploader'] label, 
     [data-testid='stFileUploader'] span, 
     [data-testid='stFileUploader'] small, 
     [data-testid='stFileUploader'] div {{ color: #333 !important; text-shadow: none !important; }}
+    /* ================================================= */
+
     .big-time {{ font-size: 2.5rem; font-weight: bold; color: #333; line-height: 1.0; }}
     .station-name {{ font-size: 0.9rem; color: #666; margin-bottom: 5px; }}
     .duration-badge {{ background-color: #ff4b4b; color: white; padding: 5px 12px; border-radius: 20px; font-size: 0.9rem; font-weight: bold; }}
