@@ -4,21 +4,33 @@ from datetime import datetime, timedelta, timezone
 import base64
 import os
 import json
+import uuid  # 💡 追加：ランダムなIDを生成するためのライブラリ
 
 # ==========================================
-# 1. ページ設定 & セッション状態の初期化
+# 1. ページ設定 & ユーザー管理（マルチユーザー対応）
 # ==========================================
 st.set_page_config(page_title="けやき台 最速Go", layout="centered", page_icon="icon.png")
 
 JST = timezone(timedelta(hours=+9), 'JST')
+
+# 💡 URLに「ユーザーID」が付いているか確認。なければ新規作成してURLにくっつける
+if "uid" not in st.query_params:
+    new_uid = str(uuid.uuid4())[:8]  # 8桁のランダムな英数字を作成
+    st.query_params["uid"] = new_uid
+    st.rerun()
+
+# 💡 現在のユーザーのIDを取得
+user_id = st.query_params["uid"]
 
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
 HAKATA_FILE = '博多駅時刻表.xlsx'
 KIYAMA_FILE = '基山駅時刻表.xlsx'
-BG_FILE_PATH = 'my_background.dat'
-SETTINGS_PATH = 'settings.json'
+
+# 💡 ファイル名にユーザーIDを組み込んで、人それぞれ別々のファイルとして保存する！
+BG_FILE_PATH = f'my_background_{user_id}.dat'
+SETTINGS_PATH = f'settings_{user_id}.json'
 
 # ==========================================
 # 2. 設定・背景ロジック
@@ -110,7 +122,6 @@ current_settings = load_settings()
 with st.sidebar:
     st.header("🎨 デザイン設定")
     
-    # 💡 label_visibility="collapsed" で上の「背景画像を変更」というテキストも消してスッキリさせます
     uploaded_file = st.file_uploader(
         "背景アップロード", 
         type=['jpg', 'png', 'jpeg', 'webp', 'gif', 'mp4'], 
@@ -177,7 +188,6 @@ st.markdown(f"""
     }}
     .result-card, .result-card * {{ text-shadow: none !important; color: #333 !important; }}
     
-    /* ===== ここからアップローダーの英語撲滅CSS ===== */
     [data-testid='stFileUploader'] {{
         background-color: rgba(255, 255, 255, 0.95);
         padding: 15px;
@@ -185,38 +195,20 @@ st.markdown(f"""
         border: 2px solid #007bff;
         text-align: center;
     }}
-    /* 「Drag and drop file here」と「Limit...」を消す */
     [data-testid='stFileUploadDropzone'] > div > div > span,
-    [data-testid='stFileUploadDropzone'] > div > div > small {{
-        display: none !important;
-    }}
-    /* 「Browse files」ボタンを「📁 背景をアップロード」の青いボタンに書き換える */
+    [data-testid='stFileUploadDropzone'] > div > div > small {{ display: none !important; }}
     [data-testid='stFileUploadDropzone'] button {{
-        position: relative !important;
-        color: transparent !important;
-        background-color: #007bff !important;
-        width: 100% !important;
-        border-radius: 8px !important;
-        padding: 12px !important;
-        margin-top: 5px !important;
-        border: none !important;
+        position: relative !important; color: transparent !important; background-color: #007bff !important;
+        width: 100% !important; border-radius: 8px !important; padding: 12px !important;
+        margin-top: 5px !important; border: none !important;
     }}
     [data-testid='stFileUploadDropzone'] button::after {{
-        content: '📁 背景をアップロード' !important;
-        position: absolute !important;
-        top: 50% !important;
-        left: 50% !important;
-        transform: translate(-50%, -50%) !important;
-        color: white !important;
-        font-weight: bold !important;
-        font-size: 1rem !important;
-        visibility: visible !important;
+        content: '📁 背景をアップロード' !important; position: absolute !important; top: 50% !important;
+        left: 50% !important; transform: translate(-50%, -50%) !important; color: white !important;
+        font-weight: bold !important; font-size: 1rem !important; visibility: visible !important;
     }}
-    [data-testid='stFileUploader'] label, 
-    [data-testid='stFileUploader'] span, 
-    [data-testid='stFileUploader'] small, 
-    [data-testid='stFileUploader'] div {{ color: #333 !important; text-shadow: none !important; }}
-    /* ================================================= */
+    [data-testid='stFileUploader'] label, [data-testid='stFileUploader'] span, 
+    [data-testid='stFileUploader'] small, [data-testid='stFileUploader'] div {{ color: #333 !important; text-shadow: none !important; }}
 
     .big-time {{ font-size: 2.5rem; font-weight: bold; color: #333; line-height: 1.0; }}
     .station-name {{ font-size: 0.9rem; color: #666; margin-bottom: 5px; }}
@@ -263,7 +255,6 @@ def find_routes(start_station_name, start_col_name, target_time_obj, df_h, df_k)
         if train1_dep_dt < now_dt: continue
         if (train1_dep_dt - now_dt).seconds > 1800: continue
 
-        # A. 直行
         keyaki_arr_time = parse_time(train1['keyaki_arr'])
         if keyaki_arr_time:
             arrival_dt = datetime.combine(today_date, keyaki_arr_time)
@@ -272,18 +263,14 @@ def find_routes(start_station_name, start_col_name, target_time_obj, df_h, df_k)
             if arrival_dt > train1_dep_dt:
                 routes.append({
                     "type": "直行",
-                    "dep_time": my_dep_time,
-                    "arr_time": keyaki_arr_time,
-                    "train1_type": train1['type'],
-                    "arrival_obj": arrival_dt,
-                    "total_minutes": (arrival_dt - train1_dep_dt).seconds // 60,
+                    "dep_time": my_dep_time, "arr_time": keyaki_arr_time, "train1_type": train1['type'],
+                    "arrival_obj": arrival_dt, "total_minutes": (arrival_dt - train1_dep_dt).seconds // 60,
                     "timeline": [
                         {"icon": "🔵", "time": my_dep_time.strftime('%H:%M'), "text": f"{start_station_name} 発 ({train1['type']}・{train1['dest']}行)"},
                         {"icon": "🏁", "time": keyaki_arr_time.strftime('%H:%M'), "text": "けやき台 着"}
                     ]
                 })
             
-        # B. 二日市乗換
         if start_station_name != "二日市":
             futsuka_arr_time1 = parse_time(train1['futsuka_arr'])
             if futsuka_arr_time1:
@@ -305,10 +292,8 @@ def find_routes(start_station_name, start_col_name, target_time_obj, df_h, df_k)
                             wait_min = (futsuka_arr_dt2 - futsuka_arr_dt1).seconds // 60
                             routes.append({
                                 "type": "二日市乗換",
-                                "dep_time": my_dep_time,
-                                "arr_time": keyaki_arr_time2,
-                                "arrival_obj": final_arr_dt,
-                                "total_minutes": (final_arr_dt - train1_dep_dt).seconds // 60,
+                                "dep_time": my_dep_time, "arr_time": keyaki_arr_time2,
+                                "arrival_obj": final_arr_dt, "total_minutes": (final_arr_dt - train1_dep_dt).seconds // 60,
                                 "timeline": [
                                     {"icon": "🔵", "time": my_dep_time.strftime('%H:%M'), "text": f"{start_station_name} 発 ({train1['type']}・{train1['dest']}行)"},
                                     {"icon": "🔶", "time": futsuka_arr_time1.strftime('%H:%M'), "text": f"二日市 着 (待ち{wait_min}分)"},
@@ -318,7 +303,6 @@ def find_routes(start_station_name, start_col_name, target_time_obj, df_h, df_k)
                             })
                             break 
 
-        # C. 基山乗換
         kiyama_arr_time = parse_time(train1['kiyama_arr'])
         if kiyama_arr_time:
             kiyama_arr_dt = datetime.combine(today_date, kiyama_arr_time)
@@ -340,10 +324,8 @@ def find_routes(start_station_name, start_col_name, target_time_obj, df_h, df_k)
                         wait_min = (datetime.combine(today_date, k_dep_time) - kiyama_arr_dt).seconds // 60
                         routes.append({
                             "type": "基山経由",
-                            "dep_time": my_dep_time,
-                            "arr_time": final_arr_time,
-                            "arrival_obj": final_arr_dt,
-                            "total_minutes": (final_arr_dt - train1_dep_dt).seconds // 60,
+                            "dep_time": my_dep_time, "arr_time": final_arr_time,
+                            "arrival_obj": final_arr_dt, "total_minutes": (final_arr_dt - train1_dep_dt).seconds // 60,
                             "timeline": [
                                 {"icon": "🔵", "time": my_dep_time.strftime('%H:%M'), "text": f"{start_station_name} 発 ({train1['type']}・{train1['dest']}行)"},
                                 {"icon": "🔶", "time": kiyama_arr_time.strftime('%H:%M'), "text": f"基山 着 (待ち{wait_min}分)"},
@@ -421,7 +403,6 @@ else:
 </div>"""
     
     html_content += "</div></div>"
-    
     st.markdown(html_content, unsafe_allow_html=True)
     
     if len(results) > 1:
