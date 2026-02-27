@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import base64
 import os
 import json
@@ -8,9 +8,12 @@ import json
 # ==========================================
 # 1. ページ設定 & セッション状態の初期化
 # ==========================================
-st.set_page_config(page_title="けやき台 最速Go", layout="centered", page_icon="🚃")
+# アイコン画像を読み込むための設定（icon.png指定）
+st.set_page_config(page_title="けやき台 最速Go", layout="centered", page_icon="icon.png")
 
-# アップロードボタンを強制的にリセットするためのキー
+# 日本時間（JST）のタイムゾーンを設定
+JST = timezone(timedelta(hours=+9), 'JST')
+
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
@@ -22,8 +25,6 @@ SETTINGS_PATH = 'settings.json'
 # ==========================================
 # 2. 設定・背景ロジック
 # ==========================================
-
-# 設定読み込み
 def load_settings():
     default_settings = {"pos_x": 50, "pos_y": 50, "zoom": 100, "opacity": 0.9, "blur": True}
     if os.path.exists(SETTINGS_PATH):
@@ -34,15 +35,12 @@ def load_settings():
             return default_settings
     return default_settings
 
-# 設定保存
 def save_settings(settings):
     with open(SETTINGS_PATH, 'w') as f:
         json.dump(settings, f)
 
-# 背景適用（ファイルから読み込む）
 def apply_background_style(image_path, settings):
     if not os.path.exists(image_path):
-        # デフォルト背景
         st.markdown("""
         <style>
         .stApp { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
@@ -55,14 +53,8 @@ def apply_background_style(image_path, settings):
         with open(image_path, "rb") as f:
             data = f.read()
         b64_str = base64.b64encode(data).decode()
-        
         bg_pos = f"{settings['pos_x']}% {settings['pos_y']}%"
         bg_size = f"{settings['zoom']}%"
-        
-        # WebPなどが来ても正しいMIMEタイプでCSSを作るために拡張子判定などはせず、
-        # Streamlitが判定したtypeを使うか、汎用的に image/png として扱う（ブラウザは大抵解釈してくれる）
-        # ここでは保存時に拡張子が変わる可能性があるため、汎用的な data URI scheme を使います
-        
         css = f"""
         <style>
         .stApp {{
@@ -90,29 +82,18 @@ current_settings = load_settings()
 
 with st.sidebar:
     st.header("🎨 デザイン設定")
-    
-    # 画像アップロード (webpを追加しました)
     uploaded_file = st.file_uploader(
         "背景画像を変更", 
         type=['jpg', 'png', 'jpeg', 'webp'], 
         key=f"uploader_{st.session_state.uploader_key}"
     )
-    
-    # 画像が選択された瞬間の処理
     if uploaded_file is not None:
-        # 1. 画像を保存 (拡張子に関わらず my_background.png として保存して扱います)
         with open(BG_IMAGE_PATH, "wb") as f:
             f.write(uploaded_file.getbuffer())
-        
-        # 2. キーを更新してアップローダーを次回強制リセット
         st.session_state.uploader_key += 1
-        
-        # 3. 再読み込みして即座に反映
         st.rerun()
 
-    # 以下、調整UI
     has_image = os.path.exists(BG_IMAGE_PATH)
-    
     if has_image:
         st.subheader("🔍 サイズと位置")
         new_zoom = st.slider("拡大・縮小 (%)", 50, 300, current_settings['zoom'], step=10)
@@ -131,17 +112,13 @@ with st.sidebar:
     
     current_settings['opacity'] = new_opacity
     current_settings['blur'] = new_blur
-
-    # 設定保存
     save_settings(current_settings)
 
-    # リセット
     if st.button("設定をリセット"):
         if os.path.exists(BG_IMAGE_PATH): os.remove(BG_IMAGE_PATH)
         if os.path.exists(SETTINGS_PATH): os.remove(SETTINGS_PATH)
         st.rerun()
 
-# 背景適用
 apply_background_style(BG_IMAGE_PATH, current_settings)
 
 # ==========================================
@@ -152,8 +129,6 @@ backdrop_val = "blur(5px)" if current_settings['blur'] else "none"
 st.markdown(f"""
     <style>
     html, body, [class*="css"] {{ font-family: "Helvetica Neue", Arial, sans-serif; }}
-    
-    /* カードデザイン */
     .result-card {{
         background-color: rgba(255, 255, 255, {current_settings['opacity']});
         border-left: 8px solid #007bff;
@@ -165,8 +140,6 @@ st.markdown(f"""
         -webkit-backdrop-filter: {backdrop_val};
     }}
     .result-card, .result-card * {{ text-shadow: none !important; color: #333 !important; }}
-    
-    /* アップロードボタン（常時見やすく） */
     [data-testid='stFileUploader'] {{
         background-color: rgba(255, 255, 255, 0.95);
         padding: 15px;
@@ -176,10 +149,7 @@ st.markdown(f"""
     [data-testid='stFileUploader'] label, 
     [data-testid='stFileUploader'] span, 
     [data-testid='stFileUploader'] small, 
-    [data-testid='stFileUploader'] div {{
-        color: #333 !important; text-shadow: none !important;
-    }}
-    
+    [data-testid='stFileUploader'] div {{ color: #333 !important; text-shadow: none !important; }}
     .big-time {{ font-size: 2.5rem; font-weight: bold; color: #333; line-height: 1.0; }}
     .station-name {{ font-size: 0.9rem; color: #666; margin-bottom: 5px; }}
     .duration-badge {{ background-color: #ff4b4b; color: white; padding: 5px 12px; border-radius: 20px; font-size: 0.9rem; font-weight: bold; }}
@@ -214,20 +184,22 @@ def load_data():
 
 def find_routes(start_station_name, start_col_name, target_time_obj, df_h, df_k):
     routes = []
-    now_dt = datetime.combine(datetime.today(), target_time_obj)
+    # 検索時の日付も日本時間に合わせる
+    today_date = datetime.now(JST).date()
+    now_dt = datetime.combine(today_date, target_time_obj)
     
     for _, train1 in df_h.iterrows():
         my_dep_time = parse_time(train1[start_col_name])
         if my_dep_time is None: continue
         
-        train1_dep_dt = datetime.combine(datetime.today(), my_dep_time)
+        train1_dep_dt = datetime.combine(today_date, my_dep_time)
         if train1_dep_dt < now_dt: continue
         if (train1_dep_dt - now_dt).seconds > 1800: continue
 
         # A. 直行
         keyaki_arr_time = parse_time(train1['keyaki_arr'])
         if keyaki_arr_time:
-            arrival_dt = datetime.combine(datetime.today(), keyaki_arr_time)
+            arrival_dt = datetime.combine(today_date, keyaki_arr_time)
             if arrival_dt < train1_dep_dt: arrival_dt += timedelta(days=1)
             
             if arrival_dt > train1_dep_dt:
@@ -248,7 +220,7 @@ def find_routes(start_station_name, start_col_name, target_time_obj, df_h, df_k)
         if start_station_name != "二日市":
             futsuka_arr_time1 = parse_time(train1['futsuka_arr'])
             if futsuka_arr_time1:
-                futsuka_arr_dt1 = datetime.combine(datetime.today(), futsuka_arr_time1)
+                futsuka_arr_dt1 = datetime.combine(today_date, futsuka_arr_time1)
                 if futsuka_arr_dt1 < train1_dep_dt: futsuka_arr_dt1 += timedelta(days=1)
                 if futsuka_arr_dt1 > train1_dep_dt:
                     transfer_ready_dt = futsuka_arr_dt1 + timedelta(minutes=2)
@@ -257,10 +229,10 @@ def find_routes(start_station_name, start_col_name, target_time_obj, df_h, df_k)
                         if not keyaki_arr_time2: continue
                         futsuka_arr_time2 = parse_time(train2['futsuka_arr'])
                         if not futsuka_arr_time2: continue
-                        futsuka_arr_dt2 = datetime.combine(datetime.today(), futsuka_arr_time2)
+                        futsuka_arr_dt2 = datetime.combine(today_date, futsuka_arr_time2)
                         if futsuka_arr_dt2 < train1_dep_dt: futsuka_arr_dt2 += timedelta(days=1)
                         if futsuka_arr_dt2 >= transfer_ready_dt:
-                            final_arr_dt = datetime.combine(datetime.today(), keyaki_arr_time2)
+                            final_arr_dt = datetime.combine(today_date, keyaki_arr_time2)
                             if final_arr_dt < futsuka_arr_dt2: final_arr_dt += timedelta(days=1)
                             if (futsuka_arr_dt2 - futsuka_arr_dt1).seconds > 1200: continue
                             wait_min = (futsuka_arr_dt2 - futsuka_arr_dt1).seconds // 60
@@ -282,7 +254,7 @@ def find_routes(start_station_name, start_col_name, target_time_obj, df_h, df_k)
         # C. 基山乗換
         kiyama_arr_time = parse_time(train1['kiyama_arr'])
         if kiyama_arr_time:
-            kiyama_arr_dt = datetime.combine(datetime.today(), kiyama_arr_time)
+            kiyama_arr_dt = datetime.combine(today_date, kiyama_arr_time)
             if kiyama_arr_dt < train1_dep_dt: kiyama_arr_dt += timedelta(days=1)
             if kiyama_arr_dt > train1_dep_dt:
                 transfer_ready_time = (kiyama_arr_dt + timedelta(minutes=3)).time()
@@ -295,10 +267,10 @@ def find_routes(start_station_name, start_col_name, target_time_obj, df_h, df_k)
                 if connected_train is not None:
                     final_arr_time = parse_time(connected_train['keyaki_arr'])
                     if final_arr_time:
-                        final_arr_dt = datetime.combine(datetime.today(), final_arr_time)
+                        final_arr_dt = datetime.combine(today_date, final_arr_time)
                         if final_arr_dt < kiyama_arr_dt: final_arr_dt += timedelta(days=1)
                         k_dep_time = parse_time(connected_train['dep_time'])
-                        wait_min = (datetime.combine(datetime.today(), k_dep_time) - kiyama_arr_dt).seconds // 60
+                        wait_min = (datetime.combine(today_date, k_dep_time) - kiyama_arr_dt).seconds // 60
                         routes.append({
                             "type": "基山経由",
                             "dep_time": my_dep_time,
@@ -337,7 +309,9 @@ if len(sorted_times) == 0:
     st.warning("データなし")
     st.stop()
 
-now = datetime.now().time()
+# 💡 ここで「日本時間」を取得するように変更しました！
+now = datetime.now(JST).time()
+
 future_times = [t for t in sorted_times if t >= now]
 past_times = [t for t in sorted_times if t < now]
 display_times = future_times + past_times
