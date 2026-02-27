@@ -4,23 +4,41 @@ from datetime import datetime, timedelta, timezone
 import base64
 import os
 import json
-import uuid  # 💡 追加：ランダムなIDを生成するためのライブラリ
+import uuid
 
 # ==========================================
-# 1. ページ設定 & ユーザー管理（マルチユーザー対応）
+# 1. ページ設定 & ユーザー管理（ログイン機能）
 # ==========================================
 st.set_page_config(page_title="けやき台 最速Go", layout="centered", page_icon="icon.png")
 
 JST = timezone(timedelta(hours=+9), 'JST')
 
-# 💡 URLに「ユーザーID」が付いているか確認。なければ新規作成してURLにくっつける
-if "uid" not in st.query_params:
-    new_uid = str(uuid.uuid4())[:8]  # 8桁のランダムな英数字を作成
-    st.query_params["uid"] = new_uid
-    st.rerun()
+# セッションまたはURLからIDを取得（なければ新規作成）
+if 'current_uid' not in st.session_state:
+    if "uid" in st.query_params:
+        st.session_state.current_uid = st.query_params["uid"]
+    else:
+        st.session_state.current_uid = str(uuid.uuid4())[:6]
+        st.query_params["uid"] = st.session_state.current_uid
 
-# 💡 現在のユーザーのIDを取得
-user_id = st.query_params["uid"]
+# ==========================================
+# 2. サイドバー（ID入力とデザイン設定）
+# ==========================================
+with st.sidebar:
+    st.header("👤 アカウント")
+    st.caption("好きな英数字を入れて自分専用にできます")
+    
+    # ▼ ここがポイント！自分でIDを上書きできる入力欄
+    new_uid = st.text_input("あなたの専用ID", value=st.session_state.current_uid)
+    if new_uid != st.session_state.current_uid and new_uid != "":
+        st.session_state.current_uid = new_uid
+        st.query_params["uid"] = new_uid
+        st.rerun()
+        
+    st.write("---")
+    st.header("🎨 デザイン設定")
+
+user_id = st.session_state.current_uid
 
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
@@ -28,12 +46,12 @@ if 'uploader_key' not in st.session_state:
 HAKATA_FILE = '博多駅時刻表.xlsx'
 KIYAMA_FILE = '基山駅時刻表.xlsx'
 
-# 💡 ファイル名にユーザーIDを組み込んで、人それぞれ別々のファイルとして保存する！
+# ユーザーIDごとに別々のファイルとして保存！
 BG_FILE_PATH = f'my_background_{user_id}.dat'
 SETTINGS_PATH = f'settings_{user_id}.json'
 
 # ==========================================
-# 2. 設定・背景ロジック
+# 3. 設定・背景ロジック
 # ==========================================
 def load_settings():
     default_settings = {"pos_x": 50, "pos_y": 50, "zoom": 100, "opacity": 0.9, "blur": True, "bg_ext": "png"}
@@ -77,18 +95,11 @@ def apply_background_style(file_path, settings):
             </video>
             <style>
             .bg-video {{
-                position: fixed;
-                top: 0; left: 0;
-                width: 100vw; height: 100vh;
-                object-fit: cover;
-                object-position: {bg_pos};
-                transform: scale({scale_val});
-                z-index: -999;
+                position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+                object-fit: cover; object-position: {bg_pos}; transform: scale({scale_val}); z-index: -999;
             }}
             .stApp {{ background: transparent !important; }}
-            h1, h2, h3, h4, h5, h6, .stMarkdown, p, label, span {{
-                text-shadow: 0px 0px 5px rgba(0,0,0,0.8); color: white !important;
-            }}
+            h1, h2, h3, h4, h5, h6, .stMarkdown, p, label, span {{ text-shadow: 0px 0px 5px rgba(0,0,0,0.8); color: white !important; }}
             </style>
             """
             st.markdown(html_code, unsafe_allow_html=True)
@@ -98,30 +109,23 @@ def apply_background_style(file_path, settings):
             <style>
             .stApp {{
                 background-image: url("data:{mime_type};base64,{b64_str}");
-                background-size: {bg_size};
-                background-position: {bg_pos};
-                background-repeat: no-repeat;
-                background-attachment: fixed;
+                background-size: {bg_size}; background-position: {bg_pos};
+                background-repeat: no-repeat; background-attachment: fixed;
             }}
-            h1, h2, h3, h4, h5, h6, .stMarkdown, p, label, span {{
-                text-shadow: 0px 0px 5px rgba(0,0,0,0.8); color: white !important;
-            }}
+            h1, h2, h3, h4, h5, h6, .stMarkdown, p, label, span {{ text-shadow: 0px 0px 5px rgba(0,0,0,0.8); color: white !important; }}
             </style>
             """
             st.markdown(css, unsafe_allow_html=True)
-            
         return True
     except Exception:
         return False
 
 # ==========================================
-# 3. サイドバーUI
+# 4. サイドバーUI（続き）
 # ==========================================
 current_settings = load_settings()
 
 with st.sidebar:
-    st.header("🎨 デザイン設定")
-    
     uploaded_file = st.file_uploader(
         "背景アップロード", 
         type=['jpg', 'png', 'jpeg', 'webp', 'gif', 'mp4'], 
@@ -133,10 +137,8 @@ with st.sidebar:
         ext = uploaded_file.name.split('.')[-1].lower()
         current_settings['bg_ext'] = ext
         save_settings(current_settings)
-        
         with open(BG_FILE_PATH, "wb") as f:
             f.write(uploaded_file.getbuffer())
-            
         st.session_state.uploader_key += 1
         st.rerun()
 
@@ -169,7 +171,7 @@ with st.sidebar:
 apply_background_style(BG_FILE_PATH, current_settings)
 
 # ==========================================
-# 4. CSS (共通・UIデザイン & ボタン日本語化)
+# 5. CSS & データ処理・UI表示（変更なし）
 # ==========================================
 backdrop_val = "blur(5px)" if current_settings['blur'] else "none"
 
@@ -178,38 +180,16 @@ st.markdown(f"""
     html, body, [class*="css"] {{ font-family: "Helvetica Neue", Arial, sans-serif; }}
     .result-card {{
         background-color: rgba(255, 255, 255, {current_settings['opacity']});
-        border-left: 8px solid #007bff;
-        padding: 20px;
-        border-radius: 12px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-        margin-bottom: 20px;
-        backdrop-filter: {backdrop_val};
-        -webkit-backdrop-filter: {backdrop_val};
+        border-left: 8px solid #007bff; padding: 20px; border-radius: 12px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3); margin-bottom: 20px;
+        backdrop-filter: {backdrop_val}; -webkit-backdrop-filter: {backdrop_val};
     }}
     .result-card, .result-card * {{ text-shadow: none !important; color: #333 !important; }}
-    
-    [data-testid='stFileUploader'] {{
-        background-color: rgba(255, 255, 255, 0.95);
-        padding: 15px;
-        border-radius: 10px;
-        border: 2px solid #007bff;
-        text-align: center;
-    }}
-    [data-testid='stFileUploadDropzone'] > div > div > span,
-    [data-testid='stFileUploadDropzone'] > div > div > small {{ display: none !important; }}
-    [data-testid='stFileUploadDropzone'] button {{
-        position: relative !important; color: transparent !important; background-color: #007bff !important;
-        width: 100% !important; border-radius: 8px !important; padding: 12px !important;
-        margin-top: 5px !important; border: none !important;
-    }}
-    [data-testid='stFileUploadDropzone'] button::after {{
-        content: '📁 背景をアップロード' !important; position: absolute !important; top: 50% !important;
-        left: 50% !important; transform: translate(-50%, -50%) !important; color: white !important;
-        font-weight: bold !important; font-size: 1rem !important; visibility: visible !important;
-    }}
-    [data-testid='stFileUploader'] label, [data-testid='stFileUploader'] span, 
-    [data-testid='stFileUploader'] small, [data-testid='stFileUploader'] div {{ color: #333 !important; text-shadow: none !important; }}
-
+    [data-testid='stFileUploader'] {{ background-color: rgba(255, 255, 255, 0.95); padding: 15px; border-radius: 10px; border: 2px solid #007bff; text-align: center; }}
+    [data-testid='stFileUploadDropzone'] > div > div > span, [data-testid='stFileUploadDropzone'] > div > div > small {{ display: none !important; }}
+    [data-testid='stFileUploadDropzone'] button {{ position: relative !important; color: transparent !important; background-color: #007bff !important; width: 100% !important; border-radius: 8px !important; padding: 12px !important; margin-top: 5px !important; border: none !important; }}
+    [data-testid='stFileUploadDropzone'] button::after {{ content: '📁 背景をアップロード' !important; position: absolute !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; color: white !important; font-weight: bold !important; font-size: 1rem !important; visibility: visible !important; }}
+    [data-testid='stFileUploader'] label, [data-testid='stFileUploader'] span, [data-testid='stFileUploader'] small, [data-testid='stFileUploader'] div {{ color: #333 !important; text-shadow: none !important; }}
     .big-time {{ font-size: 2.5rem; font-weight: bold; color: #333; line-height: 1.0; }}
     .station-name {{ font-size: 0.9rem; color: #666; margin-bottom: 5px; }}
     .duration-badge {{ background-color: #ff4b4b; color: white; padding: 5px 12px; border-radius: 20px; font-size: 0.9rem; font-weight: bold; }}
@@ -220,9 +200,6 @@ st.markdown(f"""
     </style>
 """, unsafe_allow_html=True)
 
-# ==========================================
-# 5. データ処理 & ルート検索
-# ==========================================
 def parse_time(t_val):
     if pd.isna(t_val) or t_val == "": return None
     if isinstance(t_val, datetime): return t_val.time()
@@ -250,7 +227,6 @@ def find_routes(start_station_name, start_col_name, target_time_obj, df_h, df_k)
     for _, train1 in df_h.iterrows():
         my_dep_time = parse_time(train1[start_col_name])
         if my_dep_time is None: continue
-        
         train1_dep_dt = datetime.combine(today_date, my_dep_time)
         if train1_dep_dt < now_dt: continue
         if (train1_dep_dt - now_dt).seconds > 1800: continue
@@ -259,16 +235,12 @@ def find_routes(start_station_name, start_col_name, target_time_obj, df_h, df_k)
         if keyaki_arr_time:
             arrival_dt = datetime.combine(today_date, keyaki_arr_time)
             if arrival_dt < train1_dep_dt: arrival_dt += timedelta(days=1)
-            
             if arrival_dt > train1_dep_dt:
                 routes.append({
-                    "type": "直行",
-                    "dep_time": my_dep_time, "arr_time": keyaki_arr_time, "train1_type": train1['type'],
+                    "type": "直行", "dep_time": my_dep_time, "arr_time": keyaki_arr_time, "train1_type": train1['type'],
                     "arrival_obj": arrival_dt, "total_minutes": (arrival_dt - train1_dep_dt).seconds // 60,
-                    "timeline": [
-                        {"icon": "🔵", "time": my_dep_time.strftime('%H:%M'), "text": f"{start_station_name} 発 ({train1['type']}・{train1['dest']}行)"},
-                        {"icon": "🏁", "time": keyaki_arr_time.strftime('%H:%M'), "text": "けやき台 着"}
-                    ]
+                    "timeline": [{"icon": "🔵", "time": my_dep_time.strftime('%H:%M'), "text": f"{start_station_name} 発 ({train1['type']}行)"},
+                                 {"icon": "🏁", "time": keyaki_arr_time.strftime('%H:%M'), "text": "けやき台 着"}]
                 })
             
         if start_station_name != "二日市":
@@ -291,15 +263,12 @@ def find_routes(start_station_name, start_col_name, target_time_obj, df_h, df_k)
                             if (futsuka_arr_dt2 - futsuka_arr_dt1).seconds > 1200: continue
                             wait_min = (futsuka_arr_dt2 - futsuka_arr_dt1).seconds // 60
                             routes.append({
-                                "type": "二日市乗換",
-                                "dep_time": my_dep_time, "arr_time": keyaki_arr_time2,
+                                "type": "二日市乗換", "dep_time": my_dep_time, "arr_time": keyaki_arr_time2,
                                 "arrival_obj": final_arr_dt, "total_minutes": (final_arr_dt - train1_dep_dt).seconds // 60,
-                                "timeline": [
-                                    {"icon": "🔵", "time": my_dep_time.strftime('%H:%M'), "text": f"{start_station_name} 発 ({train1['type']}・{train1['dest']}行)"},
-                                    {"icon": "🔶", "time": futsuka_arr_time1.strftime('%H:%M'), "text": f"二日市 着 (待ち{wait_min}分)"},
-                                    {"icon": "🔻", "time": futsuka_arr_time2.strftime('%H:%M'), "text": f"二日市 発 ({train2['type']}・{train2['dest']}行)"},
-                                    {"icon": "🏁", "time": keyaki_arr_time2.strftime('%H:%M'), "text": "けやき台 着"}
-                                ]
+                                "timeline": [{"icon": "🔵", "time": my_dep_time.strftime('%H:%M'), "text": f"{start_station_name} 発"},
+                                             {"icon": "🔶", "time": futsuka_arr_time1.strftime('%H:%M'), "text": f"二日市 着 (待ち{wait_min}分)"},
+                                             {"icon": "🔻", "time": futsuka_arr_time2.strftime('%H:%M'), "text": f"二日市 発"},
+                                             {"icon": "🏁", "time": keyaki_arr_time2.strftime('%H:%M'), "text": "けやき台 着"}]
                             })
                             break 
 
@@ -323,23 +292,17 @@ def find_routes(start_station_name, start_col_name, target_time_obj, df_h, df_k)
                         k_dep_time = parse_time(connected_train['dep_time'])
                         wait_min = (datetime.combine(today_date, k_dep_time) - kiyama_arr_dt).seconds // 60
                         routes.append({
-                            "type": "基山経由",
-                            "dep_time": my_dep_time, "arr_time": final_arr_time,
+                            "type": "基山経由", "dep_time": my_dep_time, "arr_time": final_arr_time,
                             "arrival_obj": final_arr_dt, "total_minutes": (final_arr_dt - train1_dep_dt).seconds // 60,
-                            "timeline": [
-                                {"icon": "🔵", "time": my_dep_time.strftime('%H:%M'), "text": f"{start_station_name} 発 ({train1['type']}・{train1['dest']}行)"},
-                                {"icon": "🔶", "time": kiyama_arr_time.strftime('%H:%M'), "text": f"基山 着 (待ち{wait_min}分)"},
-                                {"icon": "🔻", "time": k_dep_time.strftime('%H:%M'), "text": f"基山 発 ({connected_train['type']}・{connected_train['dest']}行)"},
-                                {"icon": "🏁", "time": final_arr_time.strftime('%H:%M'), "text": "けやき台 着"}
-                            ]
+                            "timeline": [{"icon": "🔵", "time": my_dep_time.strftime('%H:%M'), "text": f"{start_station_name} 発"},
+                                         {"icon": "🔶", "time": kiyama_arr_time.strftime('%H:%M'), "text": f"基山 着 (待ち{wait_min}分)"},
+                                         {"icon": "🔻", "time": k_dep_time.strftime('%H:%M'), "text": f"基山 発"},
+                                         {"icon": "🏁", "time": final_arr_time.strftime('%H:%M'), "text": "けやき台 着"}]
                         })
 
     routes.sort(key=lambda x: x['arrival_obj'])
     return routes
 
-# ==========================================
-# 6. UI 表示
-# ==========================================
 try:
     df_hakata, df_kiyama = load_data()
 except Exception as e:
@@ -365,9 +328,7 @@ display_times = future_times + past_times
 if not display_times: display_times = sorted_times
 
 time_labels = [t.strftime("%H:%M") for t in display_times]
-
 st.markdown(f"<p style='color:white; text-shadow: 1px 1px 2px black;'>▼ <strong>{selected_station}</strong> 発</p>", unsafe_allow_html=True)
-
 selected_label = st.selectbox("時刻", options=time_labels, index=0, label_visibility="collapsed")
 selected_time_obj = datetime.strptime(selected_label, "%H:%M").time()
 
@@ -377,31 +338,17 @@ if not results:
     st.warning("ルートが見つかりません")
 else:
     best = results[0]
-    
     html_content = f"""<div class="result-card">
 <div style="display: flex; justify-content: space-between; align-items: center;">
-<div style="text-align: left;">
-<div class="station-name">{selected_station} 発</div>
-<div class="big-time">{best['dep_time'].strftime('%H:%M')}</div>
-</div>
+<div style="text-align: left;"><div class="station-name">{selected_station} 発</div><div class="big-time">{best['dep_time'].strftime('%H:%M')}</div></div>
 <div style="font-size: 1.5rem; color: #aaa;">➡</div>
-<div style="text-align: right;">
-<div class="station-name">けやき台 着</div>
-<div class="big-time">{best['arr_time'].strftime('%H:%M')}</div>
-</div>
+<div style="text-align: right;"><div class="station-name">けやき台 着</div><div class="big-time">{best['arr_time'].strftime('%H:%M')}</div></div>
 </div>
 <div style="margin-top: 10px; display: flex; justify-content: space-between; align-items: center;">
-<span class="duration-badge">所要 {best['total_minutes']}分</span>
-<span style="color: #666; font-size: 0.9rem;">{best['type']}</span>
-</div>
-<div class="timeline">"""
-    
+<span class="duration-badge">所要 {best['total_minutes']}分</span><span style="color: #666; font-size: 0.9rem;">{best['type']}</span>
+</div><div class="timeline">"""
     for item in best['timeline']:
-        html_content += f"""<div class="timeline-item">
-<span class="timeline-icon">{item['icon']}</span>
-<strong>{item['time']}</strong> <span style="color: #555; margin-left: 5px;">{item['text']}</span>
-</div>"""
-    
+        html_content += f"""<div class="timeline-item"><span class="timeline-icon">{item['icon']}</span><strong>{item['time']}</strong> <span style="color: #555; margin-left: 5px;">{item['text']}</span></div>"""
     html_content += "</div></div>"
     st.markdown(html_content, unsafe_allow_html=True)
     
@@ -410,5 +357,4 @@ else:
             for r in results[1:]:
                 diff_min = r['total_minutes'] - best['total_minutes']
                 st.markdown(f"<span style='color:black;'>**{r['arr_time'].strftime('%H:%M')} 着** | {r['type']} <small>(+{diff_min if diff_min > 0 else 0}分)</small></span>", unsafe_allow_html=True)
-                for item in r['timeline']:
-                     st.caption(f"{item['time']} {item['text']}")
+                for item in r['timeline']: st.caption(f"{item['time']} {item['text']}")
